@@ -1,2 +1,3 @@
 - 사용한 dataset: [가상 실내 공간 3D 합성 데이터](https://www.aihub.or.kr/aihubdata/data/view.do?dataSetSn=71765)
 - 사용할 YOLO 모델 버전: yolov8n 또는 yolov8s
+- [YOLOv8 도큐먼트](https://docs.ultralytics.com/ko/models/yolov8/#overview)
