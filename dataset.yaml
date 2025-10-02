@@ -1,19 +1,20 @@
 # dataset.yaml 예시
-path: /path/to/dataset # 데이터셋 루트 경로 (위에 구성한 디렉토리의 절대 경로 또는 상대 경로)
-train: images/train    # 학습 이미지 경로 (path 기준)
-val: images/val      # 검증 이미지 경로 (path 기준)
-#test: images/test    # 테스트 이미지 경로 (path 기준, 선택 사항)
+path: "D:\4. AI\039.가상 실내 공간 3D 합성 데이터\3.개방데이터\1.데이터" # 데이터셋 루트 경로 (위에 구성한 디렉토리의 절대 경로 또는 상대 경로)
+train: Training/images    # 학습 이미지 경로 (path 기준)
+val: Validation/images      # 검증 이미지 경로 (path 기준)
+#test: test/images    # 테스트 이미지 경로 (path 기준, 선택 사항)
 
 # 클래스 이름과 개수
 nc: 49   # 클래스 개수
 names: ['cabinet', 'drawers', 'showcase', 'counter', 'sofa', 'chair', 'desk', 'bed', 'sidetable', 'dresstable', 'mirror', 'table', 'kitchen', 'hood', 'diningtable', 'cooktop', 'kitchentap', 'washstand', 'toilet', 'bath', 'bathcabinet', 'bathmirror', 'showerhead', 'bathtap', 'aircondition', 'tv', 'hometheater', 'computer', 'washmachine', 'refrigerator', 'architecture', 'appliances', 'hanger', 'bottle', 'clock', 'photoframe', 'inlandscape', 'cushion', 'prop', 'partition', 'ceilinglight', 'walllight', 'floorlight', 'curtain', 'door', 'window', 'DEFCEIL', 'DEFFLOOR', 'DEFWALL'] # 클래스 이름 목록 (AI 허브 데이터셋의 클래스에 맞게 작성)
 
+# 참고용
 #names:
-#  - a
-#  - b
-#  - c
-#  - d
-#  - e
+#  - hinged
+#  - automatic
+#  - sliding
+#  - folding
+#  - revolving
 #nc: 5
 #path: C:\path\to\your\dataset
 #test: test/images
