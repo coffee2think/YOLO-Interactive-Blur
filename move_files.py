@@ -4,12 +4,17 @@ import shutil
 # --- 설정 (이 두 경로만 수정하면 됩니다) ---
 # 1. 파일 탐색을 시작할 최상위 경로
 # source_dir = r"D:\4. AI\039.가상 실내 공간 3D 합성 데이터\3.개방데이터\1.데이터\Training\images"
-source_dir = r"D:\4. AI\039.가상 실내 공간 3D 합성 데이터\3.개방데이터\1.데이터\Training\labels"
+# source_dir = r"D:\4. AI\039.가상 실내 공간 3D 합성 데이터\3.개방데이터\1.데이터\Training\labels"
+# source_dir = r"D:\4. AI\039.가상 실내 공간 3D 합성 데이터\3.개방데이터\1.데이터\Validation\images"
+source_dir = r"D:\4. AI\039.가상 실내 공간 3D 합성 데이터\3.개방데이터\1.데이터\Validation\labels"
+
 
 # 2. 모든 파일을 이동시킬 최종 목표 경로
 # 여기서는 images 폴더 바로 아래로 옮기는 것을 목표로 합니다.
 # target_dir = r"D:\4. AI\039.가상 실내 공간 3D 합성 데이터\3.개방데이터\1.데이터\Training\images"
-target_dir = r"D:\4. AI\039.가상 실내 공간 3D 합성 데이터\3.개방데이터\1.데이터\Training\labels"
+# target_dir = r"D:\4. AI\039.가상 실내 공간 3D 합성 데이터\3.개방데이터\1.데이터\Training\labels"
+# target_dir = r"D:\4. AI\039.가상 실내 공간 3D 합성 데이터\3.개방데이터\1.데이터\Validation\images"
+target_dir = r"D:\4. AI\039.가상 실내 공간 3D 합성 데이터\3.개방데이터\1.데이터\Validation\labels"
 # ---------------------------------------------
 
 # 파일 확장자 목록 (필요에 따라 추가/수정 가능)
