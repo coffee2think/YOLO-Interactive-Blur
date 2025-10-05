@@ -1,0 +1,35 @@
+# hyps.yaml
+
+# ⚙️ 주요 학습 설정 (Crucial Settings)
+# ----------------------------------------------------------------------
+epochs: 100        # 총 학습 횟수 (AI 허브 데이터셋 크기에 따라 조절)
+batch: 16          # 배치 사이즈 (GPU/CPU 메모리 용량에 따라 조절)
+imgsz: 640         # 입력 이미지 해상도 (640x640)
+patience: 50       # early stopping을 위한 대기 횟수 (성능 향상이 없을 경우 학습 중단)
+
+# 🛠️ 최적화 관련 하이퍼파라미터 (Optimization)
+# ----------------------------------------------------------------------
+lr0: 0.01          # 초기 학습률 (Initial learning rate)
+lrf: 0.01          # 최종 학습률 (Final learning rate)
+momentum: 0.937    # SGD Optimizer의 모멘텀 값
+weight_decay: 0.0005 # 가중치 감소 (L2 Regularization)
+warmup_epochs: 3.0 # 초기 학습률을 서서히 높이는 웜업(Warmup) 에폭 수
+warmup_momentum: 0.8 # 웜업 단계에서의 모멘텀 값
+
+# 📊 손실 함수 관련 하이퍼파라미터 (Loss)
+# ----------------------------------------------------------------------
+box: 0.05          # 바운딩 박스 손실 가중치 (Box loss gain)
+cls: 0.5           # 분류 손실 가중치 (Classification loss gain)
+dfl: 1.5           # DFL(Distribution Focal Loss) 가중치 (YOLOv8 특유)
+
+# 🔄 데이터 증강 (Augmentation) 하이퍼파라미터
+# ----------------------------------------------------------------------
+hsv_h: 0.015       # 색조(Hue) 증강 비율
+hsv_s: 0.7         # 채도(Saturation) 증강 비율
+hsv_v: 0.4         # 명도(Value) 증강 비율
+degrees: 0.0       # 이미지 회전 각도 범위
+translate: 0.1     # 이미지 평행 이동 비율
+scale: 0.5         # 이미지 크기 조정 비율
+mosaic: 1.0        # 모자이크 증강 사용 비율 (0.0으로 설정하면 비활성화)
+mixup: 0.0         # MixUp 증강 사용 비율
+copy_paste: 0.0    # Copy-Paste 증강 사용 비율

@@ -5,12 +5,12 @@ from ultralytics import YOLO
 model = YOLO('yolov8n.pt')
 
 # 2. 모델 학습
-# data: 위에서 생성한 dataset.yaml 파일 경로
+# data: 위에서 생성한 data.yaml 파일 경로
 # epochs: 학습 반복 횟수
 # imgsz: 학습 시 이미지 크기 (기본값 640)
 # batch: 배치 크기 (GPU 메모리에 따라 조절)
 results = model.train(
-    data='path/to/your/dataset.yaml',
+    data='path/to/your/data.yaml',
     epochs=50,
     imgsz=640,
     batch=16,
