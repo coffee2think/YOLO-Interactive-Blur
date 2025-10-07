@@ -1,68 +1,149 @@
-# data_ai_hub.yaml: AI 허브 데이터셋(50개 클래스) 전용 설정 파일
+# data.yaml: AI 허브 데이터셋(49개 클래스) 전용 설정 파일
 
 # 1. 데이터셋 경로 설정 (path)
-# AI 허브에서 다운로드 받은 데이터셋의 최상위 폴더 경로로 변경해야 합니다.
-path: "D:\workspace\2025\AI-Hub"
+# 데이터셋의 최상위 폴더 경로
+path: "D:/workspace/2025/Indoor_Image_Dataset"
 
-# 2. 클래스 수 (Number of Classes, nc)
-# 총 50개의 정의된 객체 클래스 수
-nc: 49
-
-# 3. 클래스 이름 (Names of Classes, names)
-# AI Hub의 1번 ID(cabinet)가 YOLO의 0번 인덱스에 매핑됩니다.
-names:
-  0: cabinet
-  1: drawers
-  2: showcase
-  3: counter
-  4: sofa
-  5: chair
-  6: desk
-  7: bed
-  8: sidetable
-  9: dresstable
-  10: mirror
-  11: table
-  12: kitchen
-  13: hood
-  14: diningtable
-  15: cooktop
-  16: kitchentap
-  17: washstand
-  18: toilet
-  19: bath
-  20: bathcabinet
-  21: bathmirror
-  22: showerhead
-  23: bathtap
-  24: aircondition
-  25: tv
-  26: hometheater
-  27: computer
-  28: washmachine
-  29: refrigerator
-  30: architecture
-  31: appliances
-  32: hanger
-  33: bottle
-  34: clock
-  35: photoframe
-  36: inlandscape
-  37: cushion
-  38: prop
-  39: partition
-  40: ceilinglight
-  41: walllight
-  42: floorlight
-  43: curtain
-  44: door
-  45: window
-  46: DEFCEIL
-  47: DEFFLOOR
-  48: DEFWALL
-
-# 4. 데이터셋 분할 (Splits)
-# AI Hub 데이터셋 내의 이미지 경로를 path 기준 상대 경로로 지정합니다.
+# 2. 데이터셋 분할 (Splits)
+# path 기준 상대 경로
 train: train/images
 val: val/images
 #test: test/images
+
+# 3. 클래스 수 (Number of Classes, nc)
+# 정의된 객체 클래스 수
+nc: 126
+
+# 4. 클래스 이름 (Names of Classes, names)
+names:
+  # COCO 80 Classes (0 - 79) - 표준 COCO 데이터셋 사용 시 포함됨
+  # -----------------------------------------------------------
+  0: person
+  1: bicycle
+  2: car
+  3: motorcycle
+  4: airplane
+  5: bus
+  6: train
+  7: truck
+  8: boat
+  9: traffic light
+  10: fire hydrant
+  11: stop sign
+  12: parking meter
+  13: bench
+  14: bird
+  15: cat
+  16: dog
+  17: horse
+  18: sheep
+  19: cow
+  20: elephant
+  21: bear
+  22: zebra
+  23: giraffe
+  24: backpack
+  25: umbrella
+  26: handbag
+  27: tie
+  28: suitcase
+  29: frisbee
+  30: skis
+  31: snowboard
+  32: sports ball
+  33: kite
+  34: baseball bat
+  35: baseball glove
+  36: skateboard
+  37: surfboard
+  38: tennis racket
+  39: bottle # COCO에도 'bottle'가 있음. 주의 필요!
+  40: wine glass
+  41: cup
+  42: fork
+  43: knife
+  44: spoon
+  45: bowl
+  46: banana
+  47: apple
+  48: sandwich
+  49: orange
+  50: broccoli
+  51: carrot
+  52: hot dog
+  53: pizza
+  54: donut
+  55: cake
+  56: chair # COCO에도 'chair'가 있음. 주의 필요!
+  57: couch
+  58: potted plant
+  59: bed # COCO에도 'bed'가 있음. 주의 필요!
+  60: dining table # COCO에도 'dining table'이 있음. 주의 필요!
+  61: toilet # COCO에도 'toilet'이 있음. 주의 필요!
+  62: tv # COCO에도 'tv'이 있음. 주의 필요!
+  63: laptop
+  64: mouse
+  65: remote
+  66: keyboard
+  67: cell phone
+  68: microwave
+  69: oven
+  70: toaster
+  71: sink
+  72: refrigerator # COCO에도 'refrigerator'이 있음. 주의 필요!
+  73: book
+  74: clock # COCO에도 'clock'이 있음. 주의 필요!
+  75: vase
+  76: scissors
+  77: teddy bear
+  78: hair drier
+  79: toothbrush
+
+  # Custom 46 Classes (80 - 125) - ID가 80부터 시작하도록 재매핑됨
+  # -----------------------------------------------------------
+  80: cabinet
+  81: drawers
+  82: showcase
+  83: counter
+  84: sofa
+  85: chair_custom # COCO의 chair(56)와 충돌 방지를 위해 이름 변경 권장
+  86: desk
+  87: bed_custom # COCO의 bed(59)와 충돌 방지를 위해 이름 변경 권장
+  88: sidetable
+  89: dresstable
+  90: mirror
+  91: table
+  92: kitchen
+  93: hood
+  94: diningtable_custom # COCO의 dining table(60)와 충돌 방지를 위해 이름 변경 권장
+  95: cooktop
+  96: kitchentap
+  97: washstand
+  98: toilet_custom # COCO의 toilet(61)와 충돌 방지를 위해 이름 변경 권장
+  99: bath
+  100: bathcabinet
+  101: bathmirror
+  102: showerhead
+  103: bathtap
+  104: aircondition
+  105: tv_custom # COCO의 tv(62)와 충돌 방지를 위해 이름 변경 권장
+  106: hometheater
+  107: computer
+  108: washmachine
+  109: refrigerator_custom # COCO의 refrigerator(72)와 충돌 방지를 위해 이름 변경 권장
+  110: architecture
+  111: appliances
+  112: hanger
+  113: bottle_custom # COCO의 bottle(39)와 충돌 방지를 위해 이름 변경 권장
+  114: clock_custom # COCO의 clock(74)와 충돌 방지를 위해 이름 변경 권장
+  115: photoframe
+  116: inlandscape
+  117: cushion
+  118: prop
+  119: partition
+  120: ceilinglight
+  121: walllight
+  122: floorlight
+  123: curtain
+  124: door
+  125: window
