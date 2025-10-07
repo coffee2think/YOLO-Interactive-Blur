@@ -45,99 +45,6 @@ class DetectionModule:
 
         self.model = DetectionModule.MODEL
 
-    def _parse_yolo_txt_for_object_id(self, txt_path: Path) -> List[Tuple[int, List[str]]]:
-        """
-        저장된 YOLO TXT 파일을 읽어 object_id(index)를 부여한다.
-
-        Returns:
-            [(object_id, [class_id, norm_x1, norm_y1, ...]), ...]
-        """
-        if not txt_path.is_file():
-            return []
-
-        lines = txt_path.read_text(encoding='utf-8').strip().split('\n')
-
-        parsed_data = []
-        for i, line in enumerate(lines):
-            if line.strip():
-                # TXT 라인: class_id x1 y1 x2 y2 ...
-                parts = line.split()
-                if len(parts) >= 3 and len(parts) % 2 == 1:
-                    # object_id = i (0부터 시작)
-                    # class_id와 정규화 좌표를 문자열 리스트로 저장
-                    parsed_data.append((i, parts))
-        return parsed_data
-
-    def _visualize_with_object_id(self, image_path: Path, output_image_path: Path,
-                                  parsed_data: List[Tuple[int, List[str]]]):
-        """
-        YOLO TXT 데이터와 object_id를 사용하여 이미지에 세그멘테이션과 라벨을 그린다.
-        (visualize_segmentation.py의 로직 재활용)
-        """
-        # model.names를 사용하여 클래스 이름을 가져오도록 합니다.
-        class_names_map = self.model.names
-
-        image = cv2.imread(str(image_path))
-        if image is None:
-            print(f"[ERROR] 이미지 로드 실패: {image_path.name}", file=sys.stderr)
-            return
-
-        height, width = image.shape[:2]
-        overlay = image.copy()
-        ALPHA = 0.5
-
-        # 색상 설정 (모델이 로드한 클래스 개수만큼 랜덤 색상 생성)
-        COLORS = [tuple(random.randint(0, 255) for _ in range(3)) for _ in range(len(class_names_map))]
-
-        for object_id, parts in parsed_data:
-            try:
-                class_id = int(parts[0])
-                normalized_coords = [float(p) for p in parts[1:]]
-
-                class_name = class_names_map.get(class_id, f"Unknown_{class_id}")
-                color_bgr = COLORS[class_id % len(COLORS)]
-
-                # 픽셀 좌표로 변환 및 다각형 재구성
-                pixel_coords = []
-                x_coords = []
-                y_coords = []
-                for i in range(0, len(normalized_coords), 2):
-                    x = int(normalized_coords[i] * width)
-                    y = int(normalized_coords[i + 1] * height)
-                    pixel_coords.append([x, y])
-                    x_coords.append(x)
-                    y_coords.append(y)
-
-                if not pixel_coords: continue
-                polygon = np.array([pixel_coords], dtype=np.int32)
-
-                # 바운딩 박스 계산 (라벨 위치)
-                x_min, y_min = min(x_coords), min(y_coords)
-
-                # a. Segmentation 마스크 채우기
-                cv2.fillPoly(overlay, polygon, color=color_bgr)
-
-                # b. 라벨 텍스트 생성 (object_id 포함)
-                label_text = f"#{object_id}. {class_name}"
-
-                # c. 라벨 위치 및 배경 그리기
-                label_size = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
-                text_w, text_h = label_size[0]
-                text_x = x_min
-                text_y = y_min - 10 if y_min > text_h + 10 else y_min + text_h + 10
-
-                cv2.rectangle(overlay, (text_x, text_y - text_h - 5), (text_x + text_w, text_y + 5), color_bgr, -1)
-                cv2.putText(overlay, label_text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
-
-            except Exception as e:
-                print(f"[ERROR] 시각화 중 오류 발생: {e}", file=sys.stderr)
-                continue
-
-        # 블렌딩 및 저장
-        final_image = cv2.addWeighted(image, 1 - ALPHA, overlay, ALPHA, 0)
-        cv2.imwrite(str(output_image_path), final_image)
-        print(f"✅ 시각화 이미지 저장: {output_image_path.name}")
-
     def detect_and_save(self, image_path: str | Path, output_base_dir: str | Path) -> bool:
         """
         객체 탐지를 수행하고, 결과를 YOLO TXT와 시각화 이미지로 저장합니다.
@@ -199,17 +106,8 @@ class DetectionModule:
             # 탐지된 객체가 없더라도 기본 시각화 이미지는 있을 수 있으므로 실패로 처리하지 않음
             return True
 
-        # 3. TXT 파일 읽기 및 object_id 부여
-        parsed_data_with_id = self._parse_yolo_txt_for_object_id(temp_txt_path)
-
-        # 4. object_id가 포함된 커스텀 시각화 이미지 저장
-        # YOLO 기본 저장 이미지와 이름이 겹치지 않게 'custom_' 접두사 사용
-        output_image_path = save_dir / f"custom_{image_path.name}"
-        self._visualize_with_object_id(image_path, output_image_path, parsed_data_with_id)
-
         print(f"\n✅ 탐지 및 저장 완료.")
         print(f"  TXT 라벨: {temp_txt_path}")
-        print(f"  시각화: {output_image_path}")
 
         return True
 
