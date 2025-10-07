@@ -24,6 +24,7 @@
 | **수치 연산**       | NumPy (`np`)         | 이미지 데이터를 다차원 배열로 처리하고, 좌표 변환 및 수학적 연산을 효율적으로 수행합니다.                   |
 | **웹 프레임워크**     | Flask                | 사용자 이미지 업로드, 탐지 결과 표시, 객체 선택 및 최종 블러 이미지 출력을 담당하는 경량 웹 서비스 구현에 사용됩니다. |
 
+---
 ## 📁 파일 및 폴더 구조 (Project Structure)
 ```markdown
 YOLO-Interative-Blur/
@@ -49,6 +50,7 @@ YOLO-Interative-Blur/
 └── README.md
 ```
 
+---
 ## 🚀 시작하기 (Getting Started)
 ### 1. 가상 환경 생성
 ```bash
@@ -91,6 +93,7 @@ python web/app.py
 # 구동 후 `Running on` 뒤에 나오는 주소(예: http://127.0.0.1:5000)로 접속합니다.
 ```
 
+---
 ## 🛠️ 데이터셋 준비 및 모델 학습 (Data Preparation & Training)
 웹 서비스에 사용되는 `models/best.pt` 파일을 직접 학습하거나 커스텀 데이터셋을 사용하고 싶다면 아래 단계를 따릅니다.
 
