@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>최종 블러 처리 결과</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .container { max-width: 1000px; margin: 0 auto; }
+        h1 { color: #28a745; text-align: center; }
+        img { max-width: 100%; height: auto; display: block; margin: 20px auto; border: 3px solid #ccc; }
+        .flash { background-color: #d4edda; color: #155724; padding: 10px; margin-bottom: 10px; border-radius: 4px; text-align: center; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>3. 최종 블러 처리 이미지</h1>
+
+        {% with messages = get_flashed_messages() %}
+            {% if messages %}
+                {% for message in messages %}
+                    <div class="flash">{{ message }}</div>
+                {% endfor %}
+            {% endif %}
+        {% endwith %}
+
+        <img src="{{ final_image_url }}" alt="블러 처리된 최종 이미지">
+
+        <p style="text-align: center; margin-top: 30px;">
+            <a href="{{ url_for('index') }}" style="text-decoration: none; padding: 10px 20px; background-color: #007bff; color: white; border-radius: 5px;">
+                다시 시작 (새 이미지 업로드)
+            </a>
+        </p>
+    </div>
+</body>
+</html>
