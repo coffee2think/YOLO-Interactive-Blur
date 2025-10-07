@@ -2,222 +2,256 @@ import cv2
 import numpy as np
 import sys
 from pathlib import Path
-from PIL import Image
 from ultralytics import YOLO
+from typing import Optional, Tuple, Dict, Any, List
+import random
 
-
-# Chapter 3의 JSON 스키마를 따르는 데이터 구조 정의
-# 웹 연동 시 이 구조를 JSON으로 직렬화하여 사용합니다.
+# ----------------------------------------------------------------------
+# 1. DetectionModule 클래스 정의
+# ----------------------------------------------------------------------
 
 class DetectionModule:
     """
-    이미지 분석 실습의 데이터 파이프라인을 통합한 객체 탐지 모듈.
-    - YOLOv8n 모델 사용 (model=yolov8n.pt)
-    - CPU 모드 강제 실행
-    - 출력: 시각화된 PIL Image + Ch3 JSON 스키마 형태의 탐지 데이터
+    학습된 YOLOv8 Segmentation 모델을 사용하여 탐지를 수행하고,
+    결과를 YOLO TXT 파일 및 시각화 이미지로 특정 경로에 저장하는 모듈.
     """
+    # 모델 로드를 한 번만 수행하기 위한 클래스 변수
+    MODEL: Optional[YOLO] = None
 
-    # YOLO 모델 인스턴스는 한 번만 로드하도록 클래스 변수로 관리 (웹 서버 확장성 고려)
-    MODEL = None
-
-    def __init__(self, model_name: str = '../yolov8n.pt'):
+    def __init__(self, model_path: str | Path, data_yaml_path: str | Path):
         """
-        DetectionModule 초기화. 모델은 최초 1회만 로드합니다.
+        DetectionModule 초기화. 모델 및 데이터셋 정보를 로드합니다.
 
         Args:
-            model_name (str): 사용할 YOLO 모델 파일 경로 (예: 'yolov8n.pt' 또는 'yolov8n-seg.pt').
+            model_path (str | Path): 학습된 가중치 파일 (예: models/best.pt).
+            data_yaml_path (str | Path): 클래스 정보가 포함된 data.yaml 경로.
         """
+        self.model_path = Path(model_path)
+        self.data_yaml_path = Path(data_yaml_path)
+
+        if not self.model_path.is_file():
+            print(f"[ERROR] 모델 파일 경로를 찾을 수 없습니다: {self.model_path}", file=sys.stderr)
+            raise FileNotFoundError(f"Model file not found at {self.model_path}")
+
         if DetectionModule.MODEL is None:
-            print(f"YOLO 모델 로드 중: {model_name} (CPU 강제)...")
+            print(f"YOLO 모델 로드 중: {self.model_path.name} ...")
             try:
-                # GPU 리소스 제한을 고려하여 device='cpu'를 명시적으로 지정
-                DetectionModule.MODEL = YOLO(model_name)
-                print("모델 로드 완료 (CPU 모드).")
+                # 모델 로드 및 CPU 강제
+                DetectionModule.MODEL = YOLO(str(self.model_path))
+                print("모델 로드 완료.")
             except Exception as e:
-                print(f"모델 로드 중 오류 발생: {e}", file=sys.stderr)
-                DetectionModule.MODEL = None
+                print(f"[FATAL] 모델 로드 중 오류 발생: {e}", file=sys.stderr)
+                raise RuntimeError(f"Failed to load YOLO model: {e}")
 
         self.model = DetectionModule.MODEL
 
-        # Segmentation 모델 사용 여부 확인 (블러 확장 방안 대비)
-        self.is_seg_model = '-seg' in model_name
-
-    def detect_objects(self, image_path: str | Path):
+    def _parse_yolo_txt_for_object_id(self, txt_path: Path) -> List[Tuple[int, List[str]]]:
         """
-        이미지 파일 경로에서 객체를 탐지하고 결과를 구조화하여 반환합니다.
-
-        Args:
-            image_path (str | Path): 탐지할 이미지 파일의 경로. (예: 'data/inputs/image.jpg')
+        저장된 YOLO TXT 파일을 읽어 object_id(index)를 부여한다.
 
         Returns:
-            tuple: (visualized_image_pil, structured_data)
-                   - visualized_image_pil (PIL.Image or None): 탐지 결과가 시각화된 PIL 이미지 객체.
-                   - structured_data (dict or None): Chapter 3 JSON 스키마를 따르는 Python 딕셔너리.
+            [(object_id, [class_id, norm_x1, norm_y1, ...]), ...]
         """
-        if self.model is None:
-            print("오류: YOLO 모델이 로드되지 않았습니다.", file=sys.stderr)
-            return None, None
+        if not txt_path.is_file():
+            return []
 
-        image_path = Path(image_path)
-        if not image_path.is_file():
-            print(f"오류: 이미지 파일 경로를 찾을 수 없습니다: {image_path}", file=sys.stderr)
-            return None, None
+        lines = txt_path.read_text(encoding='utf-8').strip().split('\n')
 
-        # 1. 객체 탐지 실행 (CPU 강제)
-        # result 객체는 감지 이미지, 바운딩 박스, 클래스 ID, 신뢰도 등을 포함합니다.
-        results = self.model(
-            source=image_path,
-            device='cpu',
-            verbose=False,
-            # YOLO CLI 실습 플로우를 따라 TXT 라벨 저장을 흉내내고 데이터 파싱 (save_txt=True)
-            save_txt=False,  # 실제 파일 저장은 이 모듈에서 직접 처리하지 않음
-            save_conf=True
-        )
+        parsed_data = []
+        for i, line in enumerate(lines):
+            if line.strip():
+                # TXT 라인: class_id x1 y1 x2 y2 ...
+                parts = line.split()
+                if len(parts) >= 3 and len(parts) % 2 == 1:
+                    # object_id = i (0부터 시작)
+                    # class_id와 정규화 좌표를 문자열 리스트로 저장
+                    parsed_data.append((i, parts))
+        return parsed_data
 
-        if not results:
-            print("탐지 결과가 없습니다.")
-            return None, None
-
-        result = results[0]  # 단일 이미지이므로 첫 번째 결과만 사용
-
-        # 2. 이미지 정보 로드 (Ch3 JSON 스키마의 width/height 확보)
-        # result.orig_img를 사용해 원본 이미지의 크기를 확보합니다.
-        height, width = result.orig_img.shape[:2]
-
-        # 3. 탐지 결과 파싱 및 JSON 스키마 구조화 (export_detections.py/refine_detections.py의 목적 통합)
-        detections_list = []
-
-        # classes 이름 매핑 정보를 가져옵니다. (refine_detections.py 참고)
+    def _visualize_with_object_id(self, image_path: Path, output_image_path: Path,
+                                  parsed_data: List[Tuple[int, List[str]]]):
+        """
+        YOLO TXT 데이터와 object_id를 사용하여 이미지에 세그멘테이션과 라벨을 그린다.
+        (visualize_segmentation.py의 로직 재활용)
+        """
+        # model.names를 사용하여 클래스 이름을 가져오도록 합니다.
         class_names_map = self.model.names
 
-        # result.boxes.data는 [x1, y1, x2, y2, conf, cls] 형태의 텐서를 포함합니다.
-        for i, box in enumerate(result.boxes):
-            # 픽셀 좌표 (x1, y1, x2, y2)
-            xyxy_pixels = [int(val) for val in box.xyxy[0].tolist()]
-            x1, y1, x2, y2 = xyxy_pixels
+        image = cv2.imread(str(image_path))
+        if image is None:
+            print(f"[ERROR] 이미지 로드 실패: {image_path.name}", file=sys.stderr)
+            return
 
-            # 정규화 좌표 (cx, cy, w, h) - YOLO TXT 포맷과 유사
-            # box.xywhn[0].tolist()는 정규화된 cx, cy, w, h를 반환
-            cx_norm, cy_norm, w_norm, h_norm = [round(val, 4) for val in box.xywhn[0].tolist()]
+        height, width = image.shape[:2]
+        overlay = image.copy()
+        ALPHA = 0.5
 
-            confidence = round(box.conf[0].item(), 4)
-            class_id = int(box.cls[0].item())
-            class_name = class_names_map.get(class_id, 'unknown')
+        # 색상 설정 (모델이 로드한 클래스 개수만큼 랜덤 색상 생성)
+        COLORS = [tuple(random.randint(0, 255) for _ in range(3)) for _ in range(len(class_names_map))]
 
-            # Segmentation 데이터 추출 (확장 방안)
-            segmentation_mask_data = None
-            if self.is_seg_model and result.masks and i < len(result.masks.data):
-                # 블러 처리를 위해 마스크 텐서를 NumPy 배열로 변환
-                # (H, W) 형태의 이진 마스크 (0 또는 1)
-                mask_tensor = result.masks.data[i]
-                segmentation_mask_data = mask_tensor.cpu().numpy().tolist()  # 리스트 형태로 직렬화 준비
+        for object_id, parts in parsed_data:
+            try:
+                class_id = int(parts[0])
+                normalized_coords = [float(p) for p in parts[1:]]
 
-            detection_record = {
-                # Chapter 3 JSON 스키마 필드
-                "object_id": i,
-                "class_id": class_id,
-                "class_name": class_name,
-                "confidence": confidence,
-                "bbox": {"x1": x1, "y1": y1, "x2": x2, "y2": y2},  # 픽셀 좌표
-                "bbox_norm": {"cx": cx_norm, "cy": cy_norm, "w": w_norm, "h": h_norm},  # 정규화 좌표
-                # 블러 처리 확장을 위한 추가 필드
-                "segmentation_mask_data": segmentation_mask_data if segmentation_mask_data else None
-            }
-            detections_list.append(detection_record)
+                class_name = class_names_map.get(class_id, f"Unknown_{class_id}")
+                color_bgr = COLORS[class_id % len(COLORS)]
 
-        # 4. 시각화된 이미지 생성
-        # result.plot()을 사용하여 바운딩 박스, 라벨이 그려진 이미지 (NumPy BGR)를 얻습니다.
-        annotated_frame_bgr = result.plot()
+                # 픽셀 좌표로 변환 및 다각형 재구성
+                pixel_coords = []
+                x_coords = []
+                y_coords = []
+                for i in range(0, len(normalized_coords), 2):
+                    x = int(normalized_coords[i] * width)
+                    y = int(normalized_coords[i + 1] * height)
+                    pixel_coords.append([x, y])
+                    x_coords.append(x)
+                    y_coords.append(y)
 
-        # 탐지된 객체에 번호를 시각적으로 추가
-        for det in detections_list:
-            obj_id = det['object_id']
-            x1, y1 = det['bbox']['x1'], det['bbox']['y1']
-            label = f"#{obj_id}"
-            
-            # Bbox 내부 좌상단에 번호를 추가합니다.
-            text_origin = (x1 + 5, y1 + 30)
-            cv2.putText(annotated_frame_bgr, label, text_origin, 
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2, cv2.LINE_AA)
+                if not pixel_coords: continue
+                polygon = np.array([pixel_coords], dtype=np.int32)
 
-        annotated_frame_rgb = cv2.cvtColor(annotated_frame_bgr, cv2.COLOR_BGR2RGB)
-        visualized_image_pil = Image.fromarray(annotated_frame_rgb)
+                # 바운딩 박스 계산 (라벨 위치)
+                x_min, y_min = min(x_coords), min(y_coords)
 
-        # 5. 최종 구조화된 데이터 생성 (Ch3 JSON 스키마를 따름)
-        structured_data = {
-            "image": image_path.name,
-            "width": width,
-            "height": height,
-            "detections": detections_list,
-            # 메타 정보는 refine_detections.py의 형식을 따를 수 있으나, 여기서는 생략
-            # "meta": {"num_detections": len(detections_list), ...}
-        }
+                # a. Segmentation 마스크 채우기
+                cv2.fillPoly(overlay, polygon, color=color_bgr)
 
-        return visualized_image_pil, structured_data
+                # b. 라벨 텍스트 생성 (object_id 포함)
+                label_text = f"#{object_id}. {class_name}"
+
+                # c. 라벨 위치 및 배경 그리기
+                label_size = cv2.getTextSize(label_text, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+                text_w, text_h = label_size[0]
+                text_x = x_min
+                text_y = y_min - 10 if y_min > text_h + 10 else y_min + text_h + 10
+
+                cv2.rectangle(overlay, (text_x, text_y - text_h - 5), (text_x + text_w, text_y + 5), color_bgr, -1)
+                cv2.putText(overlay, label_text, (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
+
+            except Exception as e:
+                print(f"[ERROR] 시각화 중 오류 발생: {e}", file=sys.stderr)
+                continue
+
+        # 블렌딩 및 저장
+        final_image = cv2.addWeighted(image, 1 - ALPHA, overlay, ALPHA, 0)
+        cv2.imwrite(str(output_image_path), final_image)
+        print(f"✅ 시각화 이미지 저장: {output_image_path.name}")
+
+    def detect_and_save(self, image_path: str | Path, output_base_dir: str | Path) -> bool:
+        """
+        객체 탐지를 수행하고, 결과를 YOLO TXT와 시각화 이미지로 저장합니다.
+
+        Args:
+            image_path: 탐지할 이미지 파일 경로.
+            output_base_dir: 결과를 저장할 기본 디렉터리 (예: data/outputs/detections).
+
+        Returns:
+            bool: 탐지 및 저장이 성공했는지 여부.
+        """
+        if self.model is None:
+            return False
+
+        image_path = Path(image_path)
+        output_base_dir = Path(output_base_dir)
+
+        if not image_path.is_file():
+            print(f"[ERROR] 이미지 파일을 찾을 수 없습니다: {image_path}", file=sys.stderr)
+            return False
+
+        # 1. YOLO 예측 실행 (TXT 라벨 및 기본 시각화 파일 저장)
+        # project와 name을 사용하여 임시 출력 폴더를 설정
+        temp_output_name = f"detection_run_{image_path.stem}"
+
+        # YOLOv8의 predict 기능을 사용하여 TXT와 이미지를 자동으로 저장합니다.
+        results = self.model.predict(
+            source=image_path,
+            # data.yaml 경로를 명시적으로 전달 (클래스 이름 로딩에 도움)
+            data=str(self.data_yaml_path),
+            device='cpu',
+            save=True,  # 기본 시각화 이미지 저장
+            save_txt=True,  # YOLO TXT 라벨 파일 저장
+            save_conf=True,  # TXT 파일에 신뢰도 포함 (세그멘테이션은 기본적으로 신뢰도 포함)
+            project=str(output_base_dir),
+            name=temp_output_name,
+            verbose=False,
+            # 이미지당 하나의 배치이므로 batch=1 설정 불필요
+        )
+
+        # YOLO가 저장한 실제 경로를 파악합니다.
+        if not results or not hasattr(results[0], 'save_dir'):
+            print("[ERROR] YOLO 예측 결과 객체에서 저장 경로를 찾을 수 없습니다.", file=sys.stderr)
+            return False
+
+        save_dir = Path(results[0].save_dir)
+        label_dir = save_dir / "labels"
+
+        if not save_dir.is_dir():
+            print("[ERROR] YOLO 예측 결과 폴더 생성 실패.", file=sys.stderr)
+            return False
+
+        # 2. TXT 파일 경로 파악
+        txt_file_name = f"{image_path.stem}.txt"
+        temp_txt_path = label_dir / txt_file_name
+
+        if not temp_txt_path.is_file():
+            print(f"[INFO] 탐지된 객체가 없거나 TXT 파일 저장에 실패했습니다. (경로: {temp_txt_path})", file=sys.stderr)
+            # 탐지된 객체가 없더라도 기본 시각화 이미지는 있을 수 있으므로 실패로 처리하지 않음
+            return True
+
+        # 3. TXT 파일 읽기 및 object_id 부여
+        parsed_data_with_id = self._parse_yolo_txt_for_object_id(temp_txt_path)
+
+        # 4. object_id가 포함된 커스텀 시각화 이미지 저장
+        # YOLO 기본 저장 이미지와 이름이 겹치지 않게 'custom_' 접두사 사용
+        output_image_path = save_dir / f"custom_{image_path.name}"
+        self._visualize_with_object_id(image_path, output_image_path, parsed_data_with_id)
+
+        print(f"\n✅ 탐지 및 저장 완료.")
+        print(f"  TXT 라벨: {temp_txt_path}")
+        print(f"  시각화: {output_image_path}")
+
+        return True
 
 
 # ----------------------------------------------------------------------
-# 모듈 테스트 (Ch1/Ch3의 스크립트 실행 플로우 참고)
+# 2. 모듈 테스트 (선택적)
+# ----------------------------------------------------------------------
 if __name__ == '__main__':
-    # 실습 폴더 구조 준수: data/inputs
-    ROOT_DIR = Path.cwd()
-    INPUT_DIR = ROOT_DIR / "data" / "inputs"
-    OUTPUT_DIR = ROOT_DIR / "data" / "outputs"
+    # 🚨 경로 설정 (실제 경로로 수정 필요)
 
-    # 디렉터리 생성 (실습 플로우 참고)
-    INPUT_DIR.mkdir(parents=True, exist_ok=True)
-    OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    # 1. 학습된 모델 및 data.yaml 경로
+    MODEL_PATH = Path("models/best.pt")
+    DATA_YAML_PATH = Path("data.yaml")
 
-    # 🚨 테스트용 이미지 파일 경로 (실습 README의 'input.webp'를 가정)
-    test_image_filename = 'input.jpg'
-    test_image_path = INPUT_DIR / test_image_filename
+    # 2. 테스트 이미지 경로
+    TEST_IMAGE_PATH = Path("data/inputs/test_img.jpg")
 
-    if not test_image_path.is_file():
-        # 더미 이미지 생성 또는 사용자에게 요청
-        print(f"'{test_image_path}' 파일이 존재하지 않습니다. 실제 이미지를 넣어주세요.")
-        # 임시로 검은색 더미 이미지 생성
+    # 3. 결과 저장 경로
+    OUTPUT_BASE_DIR = Path("data/outputs/detection_results")
+
+    # 더미 파일 생성 (경로만 맞   추기 위해)
+    MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
+    DATA_YAML_PATH.touch(exist_ok=True)
+    if not MODEL_PATH.is_file():
+        print(f"[WARN] {MODEL_PATH.name} 더미 파일을 생성합니다. 실제 가중치 파일을 넣어주세요.")
+        MODEL_PATH.write_text("Dummy model file")
+
+    # TEST_IMAGE_PATH의 부모 디렉토리가 없으면 오류나므로, 존재하지 않으면 더미 이미지 생성
+    if not TEST_IMAGE_PATH.is_file():
+        print(f"[WARN] {TEST_IMAGE_PATH.name} 파일을 찾을 수 없습니다. 임시 더미 이미지를 사용합니다.")
+        TEST_IMAGE_PATH.parent.mkdir(parents=True, exist_ok=True)
         dummy_img = np.zeros((640, 640, 3), dtype=np.uint8)
-        cv2.putText(dummy_img, "PLACEHOLDER", (100, 320), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 3)
-        cv2.imwrite(str(test_image_path), dummy_img)
-        print("더미 이미지를 생성했습니다. 탐지 결과는 의미 없을 수 있습니다.")
+        cv2.putText(dummy_img, "DUMMY IMAGE", (100, 320), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 255, 0), 3)
+        cv2.imwrite(str(TEST_IMAGE_PATH), dummy_img)
 
-    # 1. 모듈 인스턴스 생성 (yolov8n.pt 사용)
-    # Segmentation 모델 테스트를 원하시면 'yolov8n-seg.pt'로 변경하세요.
-    detector = DetectionModule(model_name='yolov8n.pt')
+    try:
+        # 모듈 인스턴스 생성
+        detector = DetectionModule(MODEL_PATH, DATA_YAML_PATH)
 
-    # 2. 객체 탐지 수행
-    print(f"\n'{test_image_path.name}' 이미지 분석 시작...")
-    visualized_img_pil, structured_detections = detector.detect_objects(test_image_path)
+        # 탐지 및 저장 실행
+        detector.detect_and_save(TEST_IMAGE_PATH, OUTPUT_BASE_DIR)
 
-    # 3. 결과 출력 및 저장
-
-    # 3-1. 시각화 이미지 저장 (Ch2/Ch3 플로우 참고)
-    output_image_path = OUTPUT_DIR / f"annotated_{test_image_filename.split('.')[0]}.jpg"
-    if visualized_img_pil:
-        visualized_img_pil.save(output_image_path)
-        print(f"\n✅ 시각화된 이미지가 '{output_image_path}'에 저장되었습니다.")
-
-    # 3-2. 정제된 감지 JSON 데이터 출력 및 저장 (Ch3 플로우 참고)
-    import json
-
-    output_json_path = OUTPUT_DIR / "detections_refined.json"
-
-    if structured_detections:
-        # JSON 포맷으로 직렬화하여 저장
-        with open(output_json_path, 'w', encoding='utf-8') as f:
-            json.dump(structured_detections, f, indent=2, ensure_ascii=False)
-        print(f"\n✅ 정제된 탐지 데이터가 '{output_json_path}'에 저장되었습니다.")
-
-        # 콘솔 출력 (detection_summary.py의 요약 기능 대용)
-        print("\n=== 정제된 탐지 결과 요약 (Structured Data) ===")
-        print(
-            f"이미지: {structured_detections.get('image')}, 크기: {structured_detections.get('width')}x{structured_detections.get('height')}")
-        for i, det in enumerate(structured_detections['detections']):
-            seg_status = " (Segmentation O)" if det.get('segmentation_mask_data') else ""
-            print(
-                f"  - #{i}: [{det['class_id']}] {det['class_name']}: Conf={det['confidence']:.4f}, "
-                f"Pixel Box={det['bbox']}"
-                f"{seg_status}"
-            )
-    else:
-        print("\n❌ 탐지된 객체가 없거나 데이터 구조화에 실패했습니다.")
+    except (FileNotFoundError, RuntimeError) as e:
+        print(f"\n[FATAL] 모듈 실행 실패: {e}")
+        print("경로 설정을 확인하고 실제 best.pt 및 data.yaml 파일을 준비해주세요.")
