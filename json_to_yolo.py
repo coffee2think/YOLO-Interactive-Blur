@@ -1,148 +1,212 @@
 import json
-import os
-from ultralytics.data.converter import convert_
+import argparse
+from pathlib import Path
+from typing import Dict, Any, List
 
-def convert_json_to_yolo_txt(json_data, output_dir="yolo_labels"):
+import sys
+
+# COCO 클래스 개수를 상수로 정의 (YOLO TXT ID를 COCO 이후로 매핑하기 위해)
+COCO_CLASS_COUNT = 80
+
+# ====================================================
+# 터미널 사용법
+# python json_to_yolo.py --json-dir "path/to/labels/json/dir"
+# ====================================================
+
+def parse_args() -> argparse.Namespace:
+    """CLI 인자를 정의하고 파싱한다."""
+    parser = argparse.ArgumentParser(
+        description="Convert COCO-style Segmentation JSON to YOLOv8 Segmentation TXT format.",
+    )
+    # parser.add_argument(
+    #     "--json-file",
+    #     type=Path,
+    #     required=True,
+    #     help="Path to the source JSON label file.",
+    # )
+    parser.add_argument(
+        "--json-dir",
+        type=Path,
+        required=True,
+        help="Path to the directory containing source JSON label files.",
+    )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="Directory to save the YOLO TXT label files. Defaults to --json-dir.",
+    )
+    return parser.parse_args()
+
+
+def normalize_segmentation(segmentation: List[int | float], width: int, height: int) -> List[str]:
     """
-    COCO-like JSON 데이터에서 segmentation 정보를 기반으로 바운딩 박스를 계산하여
-    YOLO 형식의 .txt 파일로 변환하고 저장합니다.
+    픽셀 단위의 segmentation 좌표 리스트를 이미지 크기로 정규화한다.
+    YOLO TXT 형식에 맞게 문자열 리스트로 반환한다.
+    """
+    normalized_coords: List[str] = []
+
+    # segmentation 리스트는 [x1, y1, x2, y2, ..., xn, yn] 형태로 짝수 길이여야 함
+    if len(segmentation) % 2 != 0:
+        print("경고: Segmentation 좌표가 홀수입니다. 건너뜁니다.")
+        return []
+
+    for i in range(0, len(segmentation), 2):
+        x = segmentation[i]
+        y = segmentation[i + 1]
+
+        # X 좌표 정규화 (0.0 ~ 1.0)
+        norm_x = x / width
+
+        # Y 좌표 정규화 (0.0 ~ 1.0)
+        norm_y = y / height
+
+        # 소수점 6자리까지 반올림하여 문자열로 저장 (정밀도 유지)
+        normalized_coords.append(f"{norm_x:.6f}")
+        normalized_coords.append(f"{norm_y:.6f}")
+
+    return normalized_coords
+
+
+def map_category_id_to_index(categories: List[Dict[str, Any]], annotation_id: int) -> int | None:
+    """
+    어노테이션의 category_id를 YOLO의 80부터 시작하는 클래스 인덱스로 변환한다.
     """
 
-    # 이미지 정보 추출
-    image_info = json_data.get("image", {})
+    # 모든 category_id를 문자열로 통일하여 맵핑을 만듭니다.
+    # 제공된 categories 리스트 순서대로 80, 81, 82... 인덱스를 얻습니다.
+    # cabinet(80), drawers(81), ..., DEFWALL(128)
+    # custom_id_map = {str(cat.get("id")): index for index, cat in enumerate(categories)}
+    # target_id_str = str(annotation_id)
+    # custom_index = custom_id_map.get(target_id_str)
+    #
+    # if custom_index is not None:
+    #     # 사용자 정의 인덱스(0-48)에 COCO 클래스 개수(80)를 더하여
+    #     # 최종 YOLO ID (80-128)를 계산합니다.
+    #     yolo_class_id = custom_index + COCO_CLASS_COUNT
+    #     return yolo_class_id
+    #
+    # return None
+    return annotation_id + COCO_CLASS_COUNT - 1
+
+def process_json_to_yolo_txt(json_path: Path, output_dir: Path) -> bool:
+    """단일 JSON 파일을 읽고 YOLO TXT 형식으로 변환하여 저장한다."""
+    print(f"JSON 파일 로드 중: {json_path}")
+
+    try:
+        with open(json_path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+    except FileNotFoundError:
+        print(f"[ERROR] JSON 파일을 찾을 수 없습니다: {json_path}", file=sys.stderr)
+        return False
+    except json.JSONDecodeError:
+        print(f"[ERROR] JSON 파일 형식이 올바르지 않습니다: {json_path}", file=sys.stderr)
+        return False
+
+    # JSON에서 필요한 정보 추출
+    image_info = data.get("image", {})
+    annotations = data.get("annotations", [])
+    categories = data.get("categories", [])
+
     image_width = image_info.get("width")
     image_height = image_info.get("height")
-    file_name_base = os.path.splitext(image_info.get("file_name", "output"))[0]
+    file_name = image_info.get("file_name")
 
-    # 클래스 ID와 이름 매핑 (YOLO는 0부터 시작하는 순차적인 클래스 인덱스를 사용해야 함)
-    categories = json_data.get("categories", [])
+    if not all([image_width, image_height, file_name]):
+        print("[ERROR] JSON에 'image' 정보(width, height, file_name)가 부족합니다.", file=sys.stderr)
+        return False
 
-    # 클래스 ID (문자열)를 0부터 시작하는 순차적인 YOLO 클래스 인덱스로 매핑
-    # 예: "1" -> 0, "6" -> 1, "7" -> 2 ...
-    id_to_yolo_idx = {
-        str(cat["id"]): i
-        for i, cat in enumerate(categories)
-    }
-    # 클래스 이름 리스트 (dataset.yaml 파일에 사용)
-    class_names = [cat["name"] for cat in categories]
+    # 출력 디렉터리 생성
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-    if not image_width or not image_height:
-        print("ERROR: Image width or height is missing in the JSON data.")
-        return
+    # TXT 파일명 결정 (원본 이미지 파일명에서 확장자만 .txt로 변경)
+    yolo_label_name = Path(file_name).stem + ".txt"
+    output_path = output_dir / yolo_label_name
 
-    # 출력 폴더 생성
-    os.makedirs(output_dir, exist_ok=True)
-    output_path = os.path.join(output_dir, f"{file_name_base}.txt")
+    yolo_lines: List[str] = []
 
-    yolo_lines = []
-
-    # 1. Annotations 순회 및 바운딩 박스 계산
-    for ann in json_data.get("annotations", []):
-        category_id = str(ann.get("category_id"))  # JSON의 category_id (문자열)
-        segmentation = ann.get("segmentation", [])  # [x1, y1, x2, y2, ...]
-
-        if not segmentation:
+    for annotation in annotations:
+        category_id = annotation.get("category_id")
+        if category_id >= 47:
             continue
 
-        # YOLO 클래스 인덱스 (0, 1, 2, ...)
-        yolo_class_index = id_to_yolo_idx.get(category_id)
+        segmentation = annotation.get("segmentation")  # 픽셀 단위 좌표 리스트 [x1, y1, x2, y2, ...]
 
-        if yolo_class_index is None:
-            print(f"WARNING: Unknown category_id {category_id} skipped.")
+        if not all([category_id, segmentation]):
+            print(f"[WARN] 어노테이션 ID {annotation.get('id')}에 category_id 또는 segmentation 데이터가 부족하여 건너뜁니다.")
             continue
 
-        # 2. Segmentation 좌표에서 바운딩 박스 (x_min, y_min, x_max, y_max) 계산
-        # segmentation 리스트는 [x1, y1, x2, y2, ...] 형태이므로 짝수 인덱스는 x, 홀수 인덱스는 y
-        x_coords = segmentation[0::2]
-        y_coords = segmentation[1::2]
+        # 1. 클래스 ID를 YOLO 인덱스(0부터 시작)로 변환
+        class_index = map_category_id_to_index(categories, category_id)
+        if class_index is None:
+            print(f"[WARN] category_id {category_id}에 해당하는 클래스 인덱스를 찾을 수 없습니다. 건너뜁니다.")
+            continue
 
-        x_min = min(x_coords)
-        y_min = min(y_coords)
-        x_max = max(x_coords)
-        y_max = max(y_coords)
+        # 2. 픽셀 좌표를 정규화 좌표로 변환
+        normalized_coords = normalize_segmentation(segmentation, image_width, image_height)
+        if not normalized_coords:
+            continue
 
-        # 3. YOLO 형식 (Normalized x_center, y_center, width, height)으로 변환
-
-        # 픽셀 단위 계산
-        bbox_width = x_max - x_min
-        bbox_height = y_max - y_min
-        x_center = x_min + bbox_width / 2
-        y_center = y_min + bbox_height / 2
-
-        # 정규화 (0.0 ~ 1.0)
-        x_center_norm = x_center / image_width
-        y_center_norm = y_center / image_height
-        width_norm = bbox_width / image_width
-        height_norm = bbox_height / image_height
-
-        # YOLO .txt 형식: <class-index> <x_center> <y_center> <width> <height>
-        # 소수점 6자리까지 사용 (일반적인 정확도 기준)
-        yolo_line = f"{yolo_class_index} {x_center_norm:.6f} {y_center_norm:.6f} {width_norm:.6f} {height_norm:.6f}"
+        # 3. YOLO TXT 형식 라인 생성 (클래스 ID + 정규화 좌표들)
+        # 예: 49 0.739583 0.421296 0.739583 0.422222 ...
+        yolo_line = f"{class_index} {' '.join(normalized_coords)}"
         yolo_lines.append(yolo_line)
 
-    # 4. .txt 파일로 저장
-    if yolo_lines:
-        with open(output_path, 'w') as f:
-            f.write("\n".join(yolo_lines))
-        print(f"SUCCESS: {len(yolo_lines)} annotations converted and saved to {output_path}")
-    else:
-        print(f"WARNING: No valid annotations found for {file_name_base}. No output file generated.")
+    if not yolo_lines:
+        print(f"[WARN] {file_name}에 유효한 segmentation 어노테이션이 없어 TXT 파일 생성을 건너뜁니다.")
+        return False
 
-    return class_names
+    # 4. TXT 파일 저장
+    output_path.write_text('\n'.join(yolo_lines), encoding="utf-8")
+
+    print(f"\n✅ 성공적으로 변환 및 저장되었습니다.")
+    print(f"  원본 JSON: {json_path.name}")
+    print(f"  YOLO TXT: {output_path.resolve()}")
+    print(f"  변환된 어노테이션 수: {len(yolo_lines)}")
+
+    # 참고: YOLO 학습에 필요한 data.yaml 파일 생성을 위해 categories 정보를 기록합니다.
+    print("\n💡 YOLO data.yaml 파일 생성을 위해 아래 categories 정보를 사용하세요:")
+    class_names = [cat.get("name") for cat in categories]
+    print(f"  names: {class_names}")
+
+    return True
 
 
-# --- 변환 함수 실행 예시 ---
+def main() -> int:
+    """스크립트 진입점: 배치 처리를 수행한다."""
+    args = parse_args()
 
-# 제공된 JSON 데이터 (딕셔너리)
-json_data = {
-    "info": {
-        "description": "가상 실내 공간 3D 합성 데이터",
-        "version": "1.0.0",
-        "year": 2023
-    },
-    "categories": [
-        {"id": "1", "name": "cabinet", "type": "thing"},
-        {"id": "6", "name": "chair", "type": "thing"},
-        {"id": "7", "name": "desk", "type": "thing"},
-        {"id": "25", "name": "aircondition", "type": "thing"},
-        {"id": "41", "name": "ceilinglight", "type": "stuff"},
-        {"id": "46", "name": "window", "type": "stuff"},
-        {"id": "47", "name": "DEFCEIL", "type": "stuff"},
-        {"id": "48", "name": "DEFFLOOR", "type": "stuff"},
-        {"id": "49", "name": "DEFWALL", "type": "stuff"}
-    ],
-    "image": {
-        "id": 12435520,
-        "width": 1920,
-        "height": 1080,
-        "file_name": "etc_education_l_001_normal_0.jpg",
-        "date_captured": "2023-10-27",
-        "format": "jpg",
-        "caption": "2인용 책상과 의자 2개가 한세트로 여러 세트가 방 안 가득 배치되어 있다."
-    },
-    "annotations": [
-        {
-            "id": "EMAzRhsRLZartMuEeAPLr",
-            "category_id": 49,
-            "segmentation": [1420, 455, 1420, 456, 1419, 457, 1419, 459, 1418, 460, 1418, 461, 1429, 461, 1430, 460,
-                             1439, 460, 1438, 459, 1435, 459, 1434, 458, 1430, 458, 1429, 457, 1426, 457, 1425, 456,
-                             1421, 456],
-            "color": [185, 227, 222]
-        },
-        # 여기에 다른 annotations 데이터가 있다고 가정
-    ]
-}
+    json_dir: Path = args.json_dir
+    if not json_dir.is_dir():
+        print(f"[ERROR] JSON 디렉터리를 찾을 수 없습니다: {json_dir}", file=sys.stderr)
+        return 1
 
-# 변환 실행 (실제 JSON 파일을 로드하는 코드로 대체해야 함)
-# json_file_path = "path/to/your/annotation.json"
-# with open(json_file_path, 'r', encoding='utf-8') as f:
-#     json_data = json.load(f)
+    # 출력 디렉터리가 지정되지 않았다면, 입력 디렉터리(json_dir)로 설정합니다.
+    output_dir: Path = args.output_dir if args.output_dir else json_dir
+    output_dir.mkdir(parents=True, exist_ok=True)
 
-class_names = convert_json_to_yolo_txt(json_data, output_dir="yolo_labels_output")
+    print(f"JSON 파일 검색 중: {json_dir}")
+    print(f"TXT 파일 저장 경로: {output_dir.resolve()}")
 
-# --- dataset.yaml 파일 예시 ---
-if class_names:
-    print("\n✅ 다음은 YOLO 학습을 위한 dataset.yaml 파일의 'names' 섹션입니다:")
-    print("names:")
-    for i, name in enumerate(class_names):
-        print(f"  {i}: {name}")
+    json_files = list(json_dir.glob("*.json"))
+    if not json_files:
+        print("[WARN] 지정된 디렉터리에서 JSON 파일을 찾을 수 없습니다. 경로를 확인하세요.", file=sys.stderr)
+        return 0
+
+    total_processed = 0
+    total_success = 0
+
+    for json_file in json_files:
+        if process_json_to_yolo_txt(json_file, output_dir):
+            total_success += 1
+        total_processed += 1
+
+    print("\n--- 처리 결과 ---")
+    print(f"총 JSON 파일 수: {total_processed}")
+    print(f"성공적으로 처리된 파일 수: {total_success}")
+
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
